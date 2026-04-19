@@ -3,22 +3,178 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WC RPG Test</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>WC RPG</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="container">
-    <h1>WC RPG Test</h1>
+  <div class="app-shell">
+    <header class="top-bar">
+      <div class="brand-block">
+        <h1>World Cultures RPG</h1>
+        <p>Practice. Level up. Unlock gear.</p>
+      </div>
 
-    <label for="studentKey">Student ID</label>
-    <input id="studentKey" placeholder="js4" />
+      <div class="student-header-card">
+        <div><strong>Adventurer:</strong> <span id="student-name-display">Adventurer</span></div>
+        <div><strong>Level:</strong> <span id="student-level-display">1</span></div>
+        <div><strong>Total XP:</strong> <span id="student-xp-display">0</span></div>
+      </div>
+    </header>
 
-    <label for="period">Period</label>
-    <input id="period" placeholder="4" />
+    <main class="main-grid">
+      <aside class="left-panel">
+        <section class="panel avatar-panel">
+          <h2>Your Character</h2>
 
-    <button onclick="sendScore()">Send Test Score</button>
+          <div class="avatar-stage">
+            <img id="avatar-skin" alt="skin layer" />
+            <img id="avatar-legs" alt="legs layer" />
+            <img id="avatar-torso" alt="torso layer" />
+            <img id="avatar-hair" alt="hair layer" />
+            <img id="avatar-hat" alt="hat layer" />
+            <img id="avatar-face" alt="face layer" />
+            <img id="avatar-accessory" alt="accessory layer" />
+            <img id="avatar-weapon" alt="weapon layer" />
+            <img id="avatar-pet" alt="pet layer" />
+          </div>
+        </section>
 
-    <pre id="result"></pre>
+        <section class="panel equipment-panel">
+          <h2>Equipment</h2>
+
+          <label>Skin
+            <select id="equip-skin"></select>
+          </label>
+
+          <label>Hair
+            <select id="equip-hair"></select>
+          </label>
+
+          <label>Hat
+            <select id="equip-hat"></select>
+          </label>
+
+          <label>Face
+            <select id="equip-face"></select>
+          </label>
+
+          <label>Torso
+            <select id="equip-torso"></select>
+          </label>
+
+          <label>Legs
+            <select id="equip-legs"></select>
+          </label>
+
+          <label>Accessory
+            <select id="equip-accessory"></select>
+          </label>
+
+          <label>Weapon
+            <select id="equip-weapon"></select>
+          </label>
+
+          <label>Pet
+            <select id="equip-pet"></select>
+          </label>
+
+          <button id="save-equip-btn" type="button">Save Equipment</button>
+        </section>
+      </aside>
+
+      <section class="right-panel">
+        <div id="loading-text" class="loading-text"></div>
+        <div id="error-box" class="error-box" style="display:none;"></div>
+
+        <section id="screen-start" class="screen panel">
+          <h2>Start Adventure</h2>
+
+          <label>Student Key / ID
+            <input id="student-key" type="text" placeholder="student id" />
+          </label>
+
+          <label>Period
+            <input id="period" type="text" placeholder="period" />
+          </label>
+
+          <label>Practice Code
+            <input id="practice-code" type="text" placeholder="3.3, 3, or *3" />
+          </label>
+
+          <div class="help-box">
+            <p><strong>Lesson:</strong> 3.3</p>
+            <p><strong>Unit Review:</strong> 3</p>
+            <p><strong>Boss Battle:</strong> *3</p>
+          </div>
+
+          <button id="start-btn" type="button">Start</button>
+        </section>
+
+        <section id="screen-quiz" class="screen panel" style="display:none;">
+          <div class="quiz-meta">
+            <div id="quiz-code-label">Code:</div>
+            <div id="quiz-progress-label">Question 1 of 10</div>
+          </div>
+
+          <h2 id="quiz-question-text">Question text</h2>
+
+          <div id="quiz-choices" class="quiz-choices"></div>
+
+          <div class="quiz-nav">
+            <button id="next-btn" type="button">Next</button>
+            <button id="submit-btn" type="button" style="display:none;">Submit</button>
+          </div>
+        </section>
+
+        <section id="screen-results" class="screen panel" style="display:none;">
+          <h2 id="results-title">Adventure Complete</h2>
+
+          <div class="results-grid">
+            <div class="stat-card">
+              <div class="stat-label">Score</div>
+              <div id="results-score" class="stat-value">0 / 0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-label">Percent</div>
+              <div id="results-percent" class="stat-value">0%</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-label">XP Earned</div>
+              <div id="results-xp" class="stat-value">0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-label">Total XP</div>
+              <div id="results-total-xp" class="stat-value">0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-label">Level</div>
+              <div id="results-level" class="stat-value">1</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-label">Growth</div>
+              <div id="results-growth" class="stat-value">0</div>
+            </div>
+          </div>
+
+          <p id="results-message" class="results-message"></p>
+
+          <button id="play-again-btn" type="button">Play Again</button>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="unlock-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <h2>New Unlocks</h2>
+      <div id="unlock-list" class="unlock-list"></div>
+      <button id="close-unlock-btn" type="button">Close</button>
+    </div>
   </div>
 
   <script src="app.js"></script>
