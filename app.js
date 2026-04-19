@@ -5,16 +5,22 @@ const WC_RPG = (() => {
     QUESTION_TIME_LIMIT_SECONDS: 0,
     DEFAULT_MAX_BOSS_QUESTIONS: 10,
     STORAGE_KEY_PREFIX: "wc_rpg_",
-    XP_PER_LEVEL: 50,
-    CHARACTER_PREVIEW_FALLBACK: {
-      base: "assets/base/base_adventurer.png",
-      hair: "",
+    XP_PER_LEVEL: 100,
+    DEFAULT_CHARACTER: {
+      skin: "skin_01",
+      hair: "hair_01",
       hat: "",
-      outfit: "",
-      item: "",
-      accessory: ""
+      face: "",
+      torso: "torso_01",
+      legs: "legs_01",
+      accessory: "",
+      weapon: "",
+      pet: "",
+      unlocked_csv: "skin_01,hair_01,torso_01,legs_01"
     }
   };
+
+  const ASSET_BASE = "assets";
 
   const state = {
     studentKey: "",
@@ -23,6 +29,7 @@ const WC_RPG = (() => {
     currentUnit: "",
     currentGameName: "",
     currentSkill: "practice",
+    currentGameMode: "lesson",
     questions: [],
     filteredQuestions: [],
     currentIndex: 0,
@@ -34,7 +41,7 @@ const WC_RPG = (() => {
     endTime: null,
     resultPayload: null,
     studentProfile: null,
-    equipped: null,
+    character: null,
     unlockQueue: []
   };
 
@@ -44,6 +51,7 @@ const WC_RPG = (() => {
     cacheDom();
     bindEvents();
     loadLocalProfile();
+    ensureProfileExists();
     renderStudentHeader();
     renderAvatar();
     showScreen("start");
@@ -84,55 +92,43 @@ const WC_RPG = (() => {
     el.studentLevelDisplay = document.getElementById("student-level-display");
     el.studentXpDisplay = document.getElementById("student-xp-display");
 
-    el.avatarBase = document.getElementById("avatar-base");
+    el.avatarSkin = document.getElementById("avatar-skin");
+    el.avatarLegs = document.getElementById("avatar-legs");
+    el.avatarTorso = document.getElementById("avatar-torso");
     el.avatarHair = document.getElementById("avatar-hair");
     el.avatarHat = document.getElementById("avatar-hat");
-    el.avatarOutfit = document.getElementById("avatar-outfit");
-    el.avatarItem = document.getElementById("avatar-item");
+    el.avatarFace = document.getElementById("avatar-face");
     el.avatarAccessory = document.getElementById("avatar-accessory");
+    el.avatarWeapon = document.getElementById("avatar-weapon");
+    el.avatarPet = document.getElementById("avatar-pet");
 
     el.unlockModal = document.getElementById("unlock-modal");
     el.unlockList = document.getElementById("unlock-list");
     el.closeUnlockBtn = document.getElementById("close-unlock-btn");
 
-    el.equipPanel = document.getElementById("equip-panel");
+    el.equipSkin = document.getElementById("equip-skin");
     el.equipHair = document.getElementById("equip-hair");
     el.equipHat = document.getElementById("equip-hat");
-    el.equipOutfit = document.getElementById("equip-outfit");
-    el.equipItem = document.getElementById("equip-item");
+    el.equipFace = document.getElementById("equip-face");
+    el.equipTorso = document.getElementById("equip-torso");
+    el.equipLegs = document.getElementById("equip-legs");
     el.equipAccessory = document.getElementById("equip-accessory");
+    el.equipWeapon = document.getElementById("equip-weapon");
+    el.equipPet = document.getElementById("equip-pet");
     el.saveEquipBtn = document.getElementById("save-equip-btn");
   }
 
   function bindEvents() {
-    if (el.startBtn) {
-      el.startBtn.addEventListener("click", startGame);
-    }
-
-    if (el.nextBtn) {
-      el.nextBtn.addEventListener("click", nextQuestion);
-    }
-
-    if (el.submitBtn) {
-      el.submitBtn.addEventListener("click", finishQuiz);
-    }
-
-    if (el.playAgainBtn) {
-      el.playAgainBtn.addEventListener("click", resetToStart);
-    }
-
-    if (el.closeUnlockBtn) {
-      el.closeUnlockBtn.addEventListener("click", closeUnlockModal);
-    }
-
-    if (el.saveEquipBtn) {
-      el.saveEquipBtn.addEventListener("click", saveEquippedLoadout);
-    }
+    if (el.startBtn) el.startBtn.addEventListener("click", startGame);
+    if (el.nextBtn) el.nextBtn.addEventListener("click", nextQuestion);
+    if (el.submitBtn) el.submitBtn.addEventListener("click", finishQuiz);
+    if (el.playAgainBtn) el.playAgainBtn.addEventListener("click", resetToStart);
+    if (el.closeUnlockBtn) el.closeUnlockBtn.addEventListener("click", closeUnlockModal);
+    if (el.saveEquipBtn) el.saveEquipBtn.addEventListener("click", saveEquippedLoadout);
   }
 
   function showScreen(name) {
     hideAllScreens();
-
     if (name === "start" && el.screenStart) el.screenStart.style.display = "block";
     if (name === "quiz" && el.screenQuiz) el.screenQuiz.style.display = "block";
     if (name === "results" && el.screenResults) el.screenResults.style.display = "block";
@@ -145,9 +141,7 @@ const WC_RPG = (() => {
   }
 
   function setLoading(message) {
-    if (el.loadingText) {
-      el.loadingText.textContent = message || "";
-    }
+    if (el.loadingText) el.loadingText.textContent = message || "";
   }
 
   function setError(message) {
@@ -188,7 +182,8 @@ const WC_RPG = (() => {
     state.currentCode = code;
     state.currentUnit = deriveUnitFromCode(code);
     state.currentGameName = code;
-    state.currentSkill = isBossCode(code) ? "boss" : "practice";
+    state.currentGameMode = deriveGameMode(code);
+    state.currentSkill = state.currentGameMode === "boss" ? "boss" : "practice";
     state.currentIndex = 0;
     state.answers = [];
     state.scoreRaw = 0;
@@ -197,9 +192,11 @@ const WC_RPG = (() => {
     state.endTime = null;
     state.resultPayload = null;
 
+    loadLocalProfileForStudent(studentKey);
     ensureProfileExists();
     saveLocalProfile();
     renderStudentHeader();
+    renderAvatar();
 
     loadQuestions(code);
   }
@@ -269,7 +266,7 @@ const WC_RPG = (() => {
 
     if (el.quizChoices) {
       el.quizChoices.innerHTML = "";
-      q.choices.forEach(choice => {
+      (q.choices || []).forEach(choice => {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "choice-btn";
@@ -344,6 +341,7 @@ const WC_RPG = (() => {
         period: state.period,
         unit: state.currentUnit,
         game_name: state.currentGameName,
+        game_mode: state.currentGameMode,
         skill: state.currentSkill,
         score_raw: state.scoreRaw,
         max_points: state.maxPoints,
@@ -367,16 +365,15 @@ const WC_RPG = (() => {
 
       state.resultPayload = data;
       applyResultToProfile(data);
+
+      if (Array.isArray(data.unlocked_items) && data.unlocked_items.length > 0) {
+        state.unlockQueue = data.unlocked_items;
+        openUnlockModal(data.unlocked_items);
+      }
+
       populateEquipmentSelectors();
       renderStudentHeader();
       renderAvatar();
-
-      if (Array.isArray(data.unlocks) && data.unlocks.length > 0) {
-        state.unlockQueue = data.unlocks;
-        addUnlocksToInventory(data.unlocks);
-        populateEquipmentSelectors();
-        openUnlockModal(data.unlocks);
-      }
 
       setLoading("");
       renderResults();
@@ -473,25 +470,26 @@ const WC_RPG = (() => {
   }
 
   function didLevelUp(result) {
-    const previousLevel = Number(state.studentProfile?.level || 1);
+    const previousLevel = Number(state.studentProfile?.previousLevel || state.studentProfile?.level || 1);
     const newLevel = Number(result?.level || previousLevel);
     return newLevel > previousLevel;
   }
 
   function deriveUnitFromCode(code) {
     if (!code) return "";
-
-    const cleaned = code.replace("*", "").trim();
-
-    if (cleaned.includes(".")) {
-      return cleaned.split(".")[0];
-    }
-
+    const cleaned = String(code).replace("*", "").trim();
+    if (cleaned.includes(".")) return cleaned.split(".")[0];
     return cleaned;
   }
 
+  function deriveGameMode(code) {
+    if (isBossCode(code)) return "boss";
+    if (!String(code).includes(".")) return "unit";
+    return "lesson";
+  }
+
   function isBossCode(code) {
-    return code.startsWith("*") || code.endsWith(".10");
+    return String(code).startsWith("*") || String(code).endsWith(".10");
   }
 
   function getTimeSpentSeconds() {
@@ -501,66 +499,59 @@ const WC_RPG = (() => {
 
   function buildNotes() {
     const correctCount = state.answers.filter(a => a.is_correct).length;
-    return `Code ${state.currentCode} | Correct ${correctCount}/${state.maxPoints} | Skill ${state.currentSkill}`;
+    return `Code ${state.currentCode} | Correct ${correctCount}/${state.maxPoints} | Mode ${state.currentGameMode}`;
   }
 
   function ensureProfileExists() {
     if (!state.studentProfile) {
       state.studentProfile = {
-        studentKey: state.studentKey,
+        studentKey: state.studentKey || "",
         level: 1,
+        previousLevel: 1,
         totalXp: 0,
-        inventory: {
-          hair: [],
-          hat: [],
-          outfit: [],
-          item: [],
-          accessory: []
-        }
+        attempts: 0,
+        growth: 0
       };
     }
 
-    if (!state.equipped) {
-      state.equipped = {
-        base: CONFIG.CHARACTER_PREVIEW_FALLBACK.base,
-        hair: "",
-        hat: "",
-        outfit: "",
-        item: "",
-        accessory: ""
-      };
+    if (!state.character) {
+      state.character = parseCharacter(CONFIG.DEFAULT_CHARACTER);
     }
   }
 
   function applyResultToProfile(result) {
     ensureProfileExists();
 
+    const oldLevel = Number(state.studentProfile.level || 1);
+
     state.studentProfile.studentKey = state.studentKey;
-    state.studentProfile.level = Number(result.level || state.studentProfile.level || 1);
+    state.studentProfile.previousLevel = oldLevel;
+    state.studentProfile.level = Number(result.level || oldLevel);
     state.studentProfile.totalXp = Number(result.total_xp || state.studentProfile.totalXp || 0);
+    state.studentProfile.growth = Number(result.growth || 0);
+
+    if (result.character) {
+      state.character = parseCharacter(result.character);
+    }
 
     saveLocalProfile();
   }
 
-  function addUnlocksToInventory(unlocks) {
-    ensureProfileExists();
+  function parseCharacter(rawCharacter) {
+    const character = {
+      skin: rawCharacter?.skin || CONFIG.DEFAULT_CHARACTER.skin,
+      hair: rawCharacter?.hair || CONFIG.DEFAULT_CHARACTER.hair,
+      hat: rawCharacter?.hat || "",
+      face: rawCharacter?.face || "",
+      torso: rawCharacter?.torso || CONFIG.DEFAULT_CHARACTER.torso,
+      legs: rawCharacter?.legs || CONFIG.DEFAULT_CHARACTER.legs,
+      accessory: rawCharacter?.accessory || "",
+      weapon: rawCharacter?.weapon || "",
+      pet: rawCharacter?.pet || "",
+      unlocked_csv: rawCharacter?.unlocked_csv || CONFIG.DEFAULT_CHARACTER.unlocked_csv
+    };
 
-    unlocks.forEach(unlock => {
-      const type = unlock.type;
-      if (!state.studentProfile.inventory[type]) {
-        state.studentProfile.inventory[type] = [];
-      }
-
-      const exists = state.studentProfile.inventory[type].some(item => item.asset === unlock.asset);
-      if (!exists) {
-        state.studentProfile.inventory[type].push({
-          name: unlock.name,
-          asset: unlock.asset
-        });
-      }
-    });
-
-    saveLocalProfile();
+    return character;
   }
 
   function openUnlockModal(unlocks) {
@@ -572,9 +563,9 @@ const WC_RPG = (() => {
       const div = document.createElement("div");
       div.className = "unlock-card";
       div.innerHTML = `
-        <strong>${escapeHtml(unlock.name)}</strong>
-        <div>Type: ${escapeHtml(unlock.type)}</div>
-        <div>Asset: ${escapeHtml(unlock.asset)}</div>
+        <strong>${escapeHtml(unlock.item_name || unlock.name || "New Unlock")}</strong>
+        <div>Slot: ${escapeHtml(unlock.slot || unlock.type || "")}</div>
+        <div>Rarity: ${escapeHtml(unlock.rarity || "")}</div>
       `;
       el.unlockList.appendChild(div);
     });
@@ -583,53 +574,80 @@ const WC_RPG = (() => {
   }
 
   function closeUnlockModal() {
-    if (el.unlockModal) {
-      el.unlockModal.style.display = "none";
-    }
+    if (el.unlockModal) el.unlockModal.style.display = "none";
   }
 
   function populateEquipmentSelectors() {
-    if (!state.studentProfile?.inventory) return;
+    if (!state.character) return;
 
+    populateEquipSelect(el.equipSkin, "skin");
     populateEquipSelect(el.equipHair, "hair");
     populateEquipSelect(el.equipHat, "hat");
-    populateEquipSelect(el.equipOutfit, "outfit");
-    populateEquipSelect(el.equipItem, "item");
+    populateEquipSelect(el.equipFace, "face");
+    populateEquipSelect(el.equipTorso, "torso");
+    populateEquipSelect(el.equipLegs, "legs");
     populateEquipSelect(el.equipAccessory, "accessory");
+    populateEquipSelect(el.equipWeapon, "weapon");
+    populateEquipSelect(el.equipPet, "pet");
   }
 
-  function populateEquipSelect(selectEl, type) {
+  function populateEquipSelect(selectEl, slot) {
     if (!selectEl) return;
 
-    const items = state.studentProfile.inventory[type] || [];
-    const currentlyEquipped = state.equipped?.[type] || "";
+    const unlocked = getUnlockedAssetsForSlot(slot);
+    const currentValue = state.character?.[slot] || "";
 
     selectEl.innerHTML = "";
 
     const blankOption = document.createElement("option");
     blankOption.value = "";
-    blankOption.textContent = `No ${type}`;
+    blankOption.textContent = slot === "skin" || slot === "hair" || slot === "torso" || slot === "legs"
+      ? `Keep current ${slot}`
+      : `No ${slot}`;
     selectEl.appendChild(blankOption);
 
-    items.forEach(item => {
+    unlocked.forEach(assetKey => {
       const option = document.createElement("option");
-      option.value = item.asset;
-      option.textContent = item.name;
-      if (item.asset === currentlyEquipped) {
-        option.selected = true;
-      }
+      option.value = assetKey;
+      option.textContent = prettifyAssetName(assetKey);
+      if (assetKey === currentValue) option.selected = true;
       selectEl.appendChild(option);
     });
+  }
+
+  function getUnlockedAssetsForSlot(slot) {
+    const unlockedCsv = state.character?.unlocked_csv || "";
+    const unlocked = unlockedCsv.split(",").map(x => x.trim()).filter(Boolean);
+
+    return unlocked.filter(assetKey => belongsToSlot(slot, assetKey));
+  }
+
+  function belongsToSlot(slot, assetKey) {
+    const key = String(assetKey || "").toLowerCase();
+    if (slot === "skin") return key.startsWith("skin_");
+    if (slot === "hair") return key.startsWith("hair_");
+    if (slot === "hat") return key.startsWith("hat_");
+    if (slot === "face") return key.startsWith("face_");
+    if (slot === "torso") return key.startsWith("torso_");
+    if (slot === "legs") return key.startsWith("legs_");
+    if (slot === "accessory") return key.startsWith("acc_");
+    if (slot === "weapon") return key.startsWith("wpn_");
+    if (slot === "pet") return key.startsWith("pet_");
+    return false;
   }
 
   function saveEquippedLoadout() {
     ensureProfileExists();
 
-    state.equipped.hair = el.equipHair?.value || "";
-    state.equipped.hat = el.equipHat?.value || "";
-    state.equipped.outfit = el.equipOutfit?.value || "";
-    state.equipped.item = el.equipItem?.value || "";
-    state.equipped.accessory = el.equipAccessory?.value || "";
+    if (el.equipSkin?.value) state.character.skin = el.equipSkin.value;
+    if (el.equipHair?.value) state.character.hair = el.equipHair.value;
+    state.character.hat = el.equipHat?.value || "";
+    state.character.face = el.equipFace?.value || "";
+    if (el.equipTorso?.value) state.character.torso = el.equipTorso.value;
+    if (el.equipLegs?.value) state.character.legs = el.equipLegs.value;
+    state.character.accessory = el.equipAccessory?.value || "";
+    state.character.weapon = el.equipWeapon?.value || "";
+    state.character.pet = el.equipPet?.value || "";
 
     saveLocalProfile();
     renderAvatar();
@@ -638,12 +656,28 @@ const WC_RPG = (() => {
   function renderAvatar() {
     ensureProfileExists();
 
-    setLayerImage(el.avatarBase, state.equipped.base || CONFIG.CHARACTER_PREVIEW_FALLBACK.base);
-    setLayerImage(el.avatarHair, state.equipped.hair || "");
-    setLayerImage(el.avatarHat, state.equipped.hat || "");
-    setLayerImage(el.avatarOutfit, state.equipped.outfit || "");
-    setLayerImage(el.avatarItem, state.equipped.item || "");
-    setLayerImage(el.avatarAccessory, state.equipped.accessory || "");
+    setLayerImage(el.avatarSkin, getAssetPath("skin", state.character.skin));
+    setLayerImage(el.avatarLegs, getAssetPath("legs", state.character.legs));
+    setLayerImage(el.avatarTorso, getAssetPath("torso", state.character.torso));
+    setLayerImage(el.avatarHair, getAssetPath("hair", state.character.hair));
+    setLayerImage(el.avatarHat, getAssetPath("hat", state.character.hat));
+    setLayerImage(el.avatarFace, getAssetPath("face", state.character.face));
+    setLayerImage(el.avatarAccessory, getAssetPath("accessory", state.character.accessory));
+    setLayerImage(el.avatarWeapon, getAssetPath("weapon", state.character.weapon));
+    setLayerImage(el.avatarPet, getAssetPath("pet", state.character.pet));
+  }
+
+  function getAssetPath(slot, assetKey) {
+    if (!slot || !assetKey) return "";
+    const fileName = normalizeAssetKey(assetKey) + ".png";
+
+    if (slot === "accessory") return `${ASSET_BASE}/accessory/${fileName}`;
+    if (slot === "weapon") return `${ASSET_BASE}/weapon/${fileName}`;
+    return `${ASSET_BASE}/${slot}/${fileName}`;
+  }
+
+  function normalizeAssetKey(key) {
+    return String(key || "").trim().toLowerCase();
   }
 
   function setLayerImage(imgEl, src) {
@@ -660,7 +694,7 @@ const WC_RPG = (() => {
 
   function renderStudentHeader() {
     if (el.studentNameDisplay) {
-      el.studentNameDisplay.textContent = state.studentKey || "Adventurer";
+      el.studentNameDisplay.textContent = state.studentKey || state.studentProfile?.studentKey || "Adventurer";
     }
 
     if (el.studentLevelDisplay) {
@@ -677,6 +711,7 @@ const WC_RPG = (() => {
     state.currentUnit = "";
     state.currentGameName = "";
     state.currentSkill = "practice";
+    state.currentGameMode = "lesson";
     state.questions = [];
     state.filteredQuestions = [];
     state.currentIndex = 0;
@@ -688,9 +723,7 @@ const WC_RPG = (() => {
     state.endTime = null;
     state.resultPayload = null;
 
-    if (el.codeInput) {
-      el.codeInput.value = "";
-    }
+    if (el.codeInput) el.codeInput.value = "";
 
     clearError();
     setLoading("");
@@ -699,41 +732,58 @@ const WC_RPG = (() => {
 
   function loadLocalProfile() {
     try {
-      const studentKeyValue = (document.getElementById("student-key")?.value || "").trim().toLowerCase();
-      const key = studentKeyValue || "default";
-      const raw = localStorage.getItem(`${CONFIG.STORAGE_KEY_PREFIX}${key}`);
-
+      const raw = localStorage.getItem(`${CONFIG.STORAGE_KEY_PREFIX}default`);
       if (!raw) {
-        state.studentProfile = {
-          studentKey: "",
-          level: 1,
-          totalXp: 0,
-          inventory: {
-            hair: [],
-            hat: [],
-            outfit: [],
-            item: [],
-            accessory: []
-          }
-        };
-
-        state.equipped = {
-          base: CONFIG.CHARACTER_PREVIEW_FALLBACK.base,
-          hair: "",
-          hat: "",
-          outfit: "",
-          item: "",
-          accessory: ""
-        };
+        state.studentProfile = null;
+        state.character = null;
         return;
       }
 
       const parsed = JSON.parse(raw);
       state.studentProfile = parsed.studentProfile || null;
-      state.equipped = parsed.equipped || null;
+      state.character = parsed.character ? parseCharacter(parsed.character) : null;
     } catch (error) {
       state.studentProfile = null;
-      state.equipped = null;
+      state.character = null;
+    }
+  }
+
+  function loadLocalProfileForStudent(studentKey) {
+    try {
+      const raw = localStorage.getItem(`${CONFIG.STORAGE_KEY_PREFIX}${studentKey}`);
+      if (!raw) {
+        state.studentProfile = {
+          studentKey,
+          level: 1,
+          previousLevel: 1,
+          totalXp: 0,
+          attempts: 0,
+          growth: 0
+        };
+        state.character = parseCharacter(CONFIG.DEFAULT_CHARACTER);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      state.studentProfile = parsed.studentProfile || {
+        studentKey,
+        level: 1,
+        previousLevel: 1,
+        totalXp: 0,
+        attempts: 0,
+        growth: 0
+      };
+      state.character = parsed.character ? parseCharacter(parsed.character) : parseCharacter(CONFIG.DEFAULT_CHARACTER);
+    } catch (error) {
+      state.studentProfile = {
+        studentKey,
+        level: 1,
+        previousLevel: 1,
+        totalXp: 0,
+        attempts: 0,
+        growth: 0
+      };
+      state.character = parseCharacter(CONFIG.DEFAULT_CHARACTER);
     }
   }
 
@@ -743,11 +793,17 @@ const WC_RPG = (() => {
 
       localStorage.setItem(`${CONFIG.STORAGE_KEY_PREFIX}${key}`, JSON.stringify({
         studentProfile: state.studentProfile,
-        equipped: state.equipped
+        character: state.character
       }));
     } catch (error) {
       console.warn("Could not save local profile.", error);
     }
+  }
+
+  function prettifyAssetName(assetKey) {
+    return String(assetKey || "")
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, char => char.toUpperCase());
   }
 
   function escapeHtml(str) {
