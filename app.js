@@ -691,7 +691,24 @@ const WC_RPG = (() => {
       imgEl.style.display = "none";
     }
   }
+function getLevelFromXP(xp) {
+  return Math.floor(xp / 100) + 1;
+}
 
+function getXPForNextLevel(xp) {
+  const nextLevelXP = Math.ceil((xp + 1) / 100) * 100;
+  return nextLevelXP - xp;
+}
+
+function awardXP(baseXP, accuracy) {
+  let bonus = 0;
+
+  if (accuracy === 100) bonus = 50;
+  else if (accuracy >= 90) bonus = 30;
+  else if (accuracy >= 80) bonus = 15;
+
+  return baseXP + bonus;
+}
   function renderStudentHeader() {
     if (el.studentNameDisplay) {
       el.studentNameDisplay.textContent = state.studentKey || state.studentProfile?.studentKey || "Adventurer";
