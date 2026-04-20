@@ -1,6 +1,6 @@
 const WC_RPG = (() => {
   const CONFIG = {
-    WEB_APP_URL: "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE",
+    WEB_APP_URL: "https://script.google.com/macros/s/AKfycbz7ZEV6TtBKoiT2KQaZf9nNqiBiTC7SGolaPtZL8eIzFg03t1PbvJei0qIhYY-2iQ3cJQ/exec",
     PASSING_PERCENT: 70,
     QUESTION_TIME_LIMIT_SECONDS: 0,
     DEFAULT_MAX_BOSS_QUESTIONS: 10,
