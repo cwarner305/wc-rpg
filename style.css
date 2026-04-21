@@ -67,7 +67,49 @@ body {
 .equipment-panel h2 {
   margin-top: 0;
 }
+.avatar-panel h2,
+.equipment-panel h2,
+.monster-panel h2 {
+  margin-top: 0;
+}
 
+.monster-stage {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  background: #131313;
+}
+
+.monster-glyph {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  font-size: 2rem;
+  border: 1px solid #555;
+  border-radius: 8px;
+  background: #0d0d0d;
+}
+
+.monster-name {
+  font-weight: bold;
+  font-size: 1.05rem;
+}
+
+.monster-tier {
+  color: #d7bb63;
+  margin-top: 4px;
+}
+
+.monster-description {
+  color: #d5d5d5;
+  margin: 0;
+  line-height: 1.35;
+}
 /* THIS SECTION FIXES THE LAYERING */
 .avatar-stage {
   position: relative;
