@@ -331,22 +331,21 @@ const WC_RPG = (() => {
     recordCurrentAnswer();
 
     state.endTime = Date.now();
-    calculateScore();
 
     try {
       setLoading("Saving your progress...");
 
       const payload = {
+        action: "complete",
         student_key: state.studentKey,
         period: state.period,
-        unit: state.currentUnit,
+        code: state.currentCode,
         game_name: state.currentGameName,
-        game_mode: state.currentGameMode,
-        skill: state.currentSkill,
-        score_raw: state.scoreRaw,
-        max_points: state.maxPoints,
-        time_spent_seconds: getTimeSpentSeconds(),
-        notes: buildNotes()
+        answers: state.answers.map(a => ({
+          question_id: a.question_id,
+          selected_answer: a.selected_answer
+        })),
+        time_spent_seconds: getTimeSpentSeconds()
       };
 
       const response = await fetch(CONFIG.WEB_APP_URL, {
@@ -364,6 +363,8 @@ const WC_RPG = (() => {
       }
 
       state.resultPayload = data;
+      state.scoreRaw = Number(data.score_raw || 0);
+      state.maxPoints = Number(data.max_points || state.filteredQuestions.length || 0);
       applyResultToProfile(data);
 
       if (Array.isArray(data.unlocked_items) && data.unlocked_items.length > 0) {
@@ -387,14 +388,11 @@ const WC_RPG = (() => {
   function recordCurrentAnswer() {
     const q = state.filteredQuestions[state.currentIndex];
     const selected = state.selectedAnswer;
-    const correct = (q.correct_answer || "").toUpperCase();
-    const isCorrect = selected === correct;
 
     state.answers.push({
       index: state.currentIndex,
+      question_id: q.question_id || "",
       selected_answer: selected,
-      correct_answer: correct,
-      is_correct: isCorrect,
       question_text: q.question_text || "",
       skill: q.skill || "",
       difficulty: q.difficulty || ""
@@ -403,15 +401,10 @@ const WC_RPG = (() => {
     state.selectedAnswer = null;
   }
 
-  function calculateScore() {
-    state.scoreRaw = state.answers.filter(a => a.is_correct).length;
-    state.maxPoints = state.filteredQuestions.length;
-  }
-
   function renderResults() {
-    const percent = state.maxPoints > 0
+    const percent = Number(state.resultPayload?.score_percent ?? (state.maxPoints > 0
       ? Math.round((state.scoreRaw / state.maxPoints) * 100)
-      : 0;
+      : 0));
 
     const result = state.resultPayload || {};
 
