@@ -1,3 +1,4 @@
+// ===== START COPY HERE: app.js =====
 const WC_RPG = (() => {
   const CONFIG = {
     WEB_APP_URL: "https://script.google.com/macros/s/AKfycbz7ZEV6TtBKoiT2KQaZf9nNqiBiTC7SGolaPtZL8eIzFg03t1PbvJei0qIhYY-2iQ3cJQ/exec",
@@ -21,6 +22,35 @@ const WC_RPG = (() => {
   };
 
   const ASSET_BASE = "assets";
+  const MONSTER_LIBRARY = {
+    fallback: [
+      { id: "sparring_wisp", name: "Sparring Wisp", glyph: "🌀", lore: "A training spirit that tests basic pattern recognition.", tier: 1 },
+      { id: "archive_guardian", name: "Archive Guardian", glyph: "📚", lore: "A keeper of maps and records who rewards careful reasoning.", tier: 2 }
+    ],
+    "1": [
+      { id: "chronicle_beast", name: "Chronicle Beast", glyph: "🦉", lore: "A mythic owl linked to memory and historical perspective.", tier: 1 }
+    ],
+    "2": [
+      { id: "river_warden", name: "River Warden", glyph: "🐊", lore: "A folklore guardian tied to river routes and trade corridors.", tier: 2 },
+      { id: "storm_lion", name: "Storm Lion", glyph: "🦁", lore: "A legendary protector that appears in regional storytelling traditions.", tier: 3 }
+    ],
+    "3": [
+      { id: "desert_manticore", name: "Desert Manticore", glyph: "🦂", lore: "A Persian-inspired mythic challenger representing high-risk encounters.", tier: 3 },
+      { id: "anqa_echo", name: "Anqa Echo", glyph: "🕊️", lore: "Inspired by classical Arabic lore, this encounter favors synthesis questions.", tier: 4 }
+    ],
+    "4": [
+      { id: "jade_drake", name: "Jade Drake", glyph: "🐉", lore: "A folklore dragon encounter tied to statecraft and long-term planning.", tier: 3 },
+      { id: "nian_hunter", name: "Nian Hunter", glyph: "🧧", lore: "Inspired by New Year legend themes of preparation and resilience.", tier: 4 }
+    ],
+    "5": [
+      { id: "makara_guard", name: "Makara Guard", glyph: "🐘", lore: "A mythic protector inspired by South Asian artistic traditions.", tier: 3 },
+      { id: "garuda_trial", name: "Garuda Trial", glyph: "🦅", lore: "A high-tier encounter inspired by regional epic storytelling.", tier: 4 }
+    ],
+    "6": [
+      { id: "network_hydra", name: "Network Hydra", glyph: "🛰️", lore: "A modern myth encounter where global systems interact and collide.", tier: 4 },
+      { id: "signal_titan", name: "Signal Titan", glyph: "🤖", lore: "Represents interconnected economies, tech, and power shifts.", tier: 5 }
+    ]
+  };
 
   const state = {
     studentKey: "",
@@ -42,7 +72,8 @@ const WC_RPG = (() => {
     resultPayload: null,
     studentProfile: null,
     character: null,
-    unlockQueue: []
+    unlockQueue: [],
+    currentMonster: null
   };
 
   const el = {};
@@ -116,6 +147,10 @@ const WC_RPG = (() => {
     el.equipWeapon = document.getElementById("equip-weapon");
     el.equipPet = document.getElementById("equip-pet");
     el.saveEquipBtn = document.getElementById("save-equip-btn");
+    el.monsterGlyph = document.getElementById("monster-glyph");
+    el.monsterName = document.getElementById("monster-name");
+    el.monsterTier = document.getElementById("monster-tier");
+    el.monsterDescription = document.getElementById("monster-description");
   }
 
   function bindEvents() {
@@ -191,12 +226,15 @@ const WC_RPG = (() => {
     state.startTime = Date.now();
     state.endTime = null;
     state.resultPayload = null;
+    state.currentMonster = null;
 
     loadLocalProfileForStudent(studentKey);
     ensureProfileExists();
     saveLocalProfile();
     renderStudentHeader();
     renderAvatar();
+    chooseMonsterForRun();
+    renderMonster();
 
     loadQuestions(code);
   }
@@ -228,6 +266,8 @@ const WC_RPG = (() => {
 
       setLoading("");
       showScreen("quiz");
+      chooseMonsterForRun();
+      renderMonster();
       renderQuestion();
     } catch (error) {
       setLoading("");
@@ -341,6 +381,8 @@ const WC_RPG = (() => {
         period: state.period,
         code: state.currentCode,
         game_name: state.currentGameName,
+        monster_id: state.currentMonster?.id || "",
+        monster_tier: Number(state.currentMonster?.tier || 1),
         answers: state.answers.map(a => ({
           question_id: a.question_id,
           selected_answer: a.selected_answer
@@ -446,9 +488,10 @@ const WC_RPG = (() => {
   function buildResultMessage(percent, result) {
     const leveledUp = didLevelUp(result);
     const bossText = isBossCode(state.currentCode) ? "boss battle" : "adventure";
+    const monsterName = state.currentMonster?.name ? ` against ${state.currentMonster.name}` : "";
 
     if (leveledUp && percent >= CONFIG.PASSING_PERCENT) {
-      return `Great work. You cleared this ${bossText}, leveled up, and unlocked new gear.`;
+      return `Great work. You cleared this ${bossText}${monsterName}, leveled up, and unlocked new gear.`;
     }
 
     if (leveledUp) {
@@ -456,7 +499,7 @@ const WC_RPG = (() => {
     }
 
     if (percent >= CONFIG.PASSING_PERCENT) {
-      return `You cleared this ${bossText}. Replay for stronger mastery and more growth.`;
+      return `You cleared this ${bossText}${monsterName}. Replay for stronger mastery and more growth.`;
     }
 
     return `Not cleared yet. Replay this code and keep building XP, growth, and gear.`;
@@ -483,6 +526,46 @@ const WC_RPG = (() => {
 
   function isBossCode(code) {
     return String(code).startsWith("*") || String(code).endsWith(".10");
+  }
+
+  function chooseMonsterForRun() {
+    const unit = deriveUnitFromCode(state.currentCode || "");
+    const baseList = MONSTER_LIBRARY[unit] || MONSTER_LIBRARY.fallback;
+    if (!Array.isArray(baseList) || baseList.length === 0) {
+      state.currentMonster = MONSTER_LIBRARY.fallback[0];
+      return;
+    }
+
+    const mode = state.currentGameMode;
+    let pool = [...baseList];
+    if (mode === "boss") {
+      pool = pool.filter(m => Number(m.tier || 1) >= 3);
+    }
+
+    if (pool.length === 0) pool = [...baseList];
+    const picked = pool[Math.floor(Math.random() * pool.length)];
+    state.currentMonster = {
+      ...picked,
+      tier: mode === "boss" ? Math.max(3, Number(picked.tier || 1)) : Number(picked.tier || 1)
+    };
+  }
+
+  function renderMonster() {
+    const monster = state.currentMonster || MONSTER_LIBRARY.fallback[0];
+    if (!monster) return;
+
+    if (el.monsterGlyph) el.monsterGlyph.textContent = monster.glyph || "👾";
+    if (el.monsterName) el.monsterName.textContent = monster.name || "Training Dummy";
+    if (el.monsterTier) {
+      const modeLabel = state.currentGameMode === "boss" ? "Boss" : state.currentGameMode === "unit" ? "Elite" : "Standard";
+      el.monsterTier.textContent = `${modeLabel} Tier ${monster.tier || 1}`;
+    }
+    if (el.monsterDescription) {
+      const bonusText = state.currentGameMode === "boss"
+        ? "Defeating this encounter boosts XP and improves high-rarity loot odds."
+        : "Clear this encounter to gain XP and progression rewards.";
+      el.monsterDescription.textContent = `${monster.lore || ""} ${bonusText}`.trim();
+    }
   }
 
   function getTimeSpentSeconds() {
@@ -732,11 +815,13 @@ function awardXP(baseXP, accuracy) {
     state.startTime = null;
     state.endTime = null;
     state.resultPayload = null;
+    state.currentMonster = null;
 
     if (el.codeInput) el.codeInput.value = "";
 
     clearError();
     setLoading("");
+    renderMonster();
     showScreen("start");
   }
 
@@ -833,3 +918,4 @@ function awardXP(baseXP, accuracy) {
 document.addEventListener("DOMContentLoaded", () => {
   WC_RPG.init();
 });
+// ===== END COPY HERE: app.js =====
