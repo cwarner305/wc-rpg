@@ -122,25 +122,14 @@ body {
   overflow: hidden;
 }
 
-.avatar-stage img {
+.avatar-stage canvas {
   position: absolute;
   top: 0;
   left: 0;
   width: 256px;
   height: 256px;
   image-rendering: pixelated;
-  display: none;
 }
-
-#avatar-pet { z-index: 0; }
-#avatar-skin { z-index: 1; }
-#avatar-legs { z-index: 2; }
-#avatar-torso { z-index: 3; }
-#avatar-hair { z-index: 4; }
-#avatar-hat { z-index: 5; }
-#avatar-face { z-index: 6; }
-#avatar-accessory { z-index: 7; }
-#avatar-weapon { z-index: 8; }
 
 .equipment-panel label,
 #screen-start label {
@@ -299,7 +288,7 @@ button:disabled {
     height: 220px;
   }
 
-  .avatar-stage img {
+  .avatar-stage canvas {
     width: 220px;
     height: 220px;
   }
