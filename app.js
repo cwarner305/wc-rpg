@@ -72,6 +72,7 @@ const WC_RPG = (() => {
     resultPayload: null,
     studentProfile: null,
     character: null,
+    equipment: null,
     unlockQueue: [],
     currentMonster: null
   };
@@ -190,7 +191,7 @@ const WC_RPG = (() => {
     setError("");
   }
 
-  function startGame() {
+  async function startGame() {
     clearError();
 
     const studentKey = (el.studentKeyInput?.value || "").trim().toLowerCase();
@@ -230,13 +231,47 @@ const WC_RPG = (() => {
 
     loadLocalProfileForStudent(studentKey);
     ensureProfileExists();
+    await hydrateStudentFromServer(studentKey);
     saveLocalProfile();
     renderStudentHeader();
     renderAvatar();
+    populateEquipmentSelectors();
     chooseMonsterForRun();
     renderMonster();
 
     loadQuestions(code);
+  }
+
+  async function hydrateStudentFromServer(studentKey) {
+    try {
+      const url = `${CONFIG.WEB_APP_URL}?action=student&student_key=${encodeURIComponent(studentKey)}`;
+      const response = await fetch(url, { method: "GET" });
+      const data = await response.json();
+
+      if (!data.ok) return;
+
+      if (data.summary) {
+        state.studentProfile = {
+          ...state.studentProfile,
+          studentKey,
+          level: Number(data.summary.level || 1),
+          previousLevel: Number(data.summary.level || 1),
+          totalXp: Number(data.summary.total_xp || 0),
+          attempts: Number(data.summary.attempts || 0),
+          growth: Number(data.summary.growth_from_last || 0)
+        };
+      }
+
+      if (data.character) {
+        state.character = parseCharacter(data.character);
+      }
+
+      if (data.equipment) {
+        state.equipment = data.equipment;
+      }
+    } catch (error) {
+      console.warn("Unable to hydrate student from backend.", error);
+    }
   }
 
   async function loadQuestions(code) {
@@ -610,6 +645,10 @@ const WC_RPG = (() => {
       state.character = parseCharacter(result.character);
     }
 
+    if (result.equipment) {
+      state.equipment = result.equipment;
+    }
+
     saveLocalProfile();
   }
 
@@ -692,6 +731,14 @@ const WC_RPG = (() => {
   }
 
   function getUnlockedAssetsForSlot(slot) {
+    const slotItems = state.equipment?.slots?.[slot];
+    if (Array.isArray(slotItems) && slotItems.length > 0) {
+      return slotItems
+        .filter(item => !!item.unlocked)
+        .map(item => item.item_id)
+        .filter(Boolean);
+    }
+
     const unlockedCsv = state.character?.unlocked_csv || "";
     const unlocked = unlockedCsv.split(",").map(x => x.trim()).filter(Boolean);
 
@@ -706,13 +753,13 @@ const WC_RPG = (() => {
     if (slot === "face") return key.startsWith("face_");
     if (slot === "torso") return key.startsWith("torso_");
     if (slot === "legs") return key.startsWith("legs_");
-    if (slot === "accessory") return key.startsWith("acc_");
-    if (slot === "weapon") return key.startsWith("wpn_");
+    if (slot === "accessory") return key.startsWith("acc_") || key.startsWith("accessory_");
+    if (slot === "weapon") return key.startsWith("wpn_") || key.startsWith("weapon_");
     if (slot === "pet") return key.startsWith("pet_");
     return false;
   }
 
-  function saveEquippedLoadout() {
+  async function saveEquippedLoadout() {
     ensureProfileExists();
 
     if (el.equipSkin?.value) state.character.skin = el.equipSkin.value;
@@ -725,8 +772,41 @@ const WC_RPG = (() => {
     state.character.weapon = el.equipWeapon?.value || "";
     state.character.pet = el.equipPet?.value || "";
 
-    saveLocalProfile();
-    renderAvatar();
+    const payload = {
+      action: "save_character",
+      student_key: state.studentKey,
+      skin: state.character.skin,
+      hair: state.character.hair,
+      hat: state.character.hat,
+      face: state.character.face,
+      torso: state.character.torso,
+      legs: state.character.legs,
+      accessory: state.character.accessory,
+      weapon: state.character.weapon,
+      pet: state.character.pet
+    };
+
+    try {
+      const response = await fetch(CONFIG.WEB_APP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+
+      if (!data.ok) {
+        throw new Error(data.error || "Could not save equipment.");
+      }
+
+      if (data.character) state.character = parseCharacter(data.character);
+      if (data.equipment) state.equipment = data.equipment;
+      saveLocalProfile();
+      renderAvatar();
+    } catch (error) {
+      setError(error.message || "Could not save equipment.");
+    }
   }
 
   function renderAvatar() {
