@@ -21,7 +21,6 @@ const WC_RPG = (() => {
     }
   };
 
-  const ASSET_BASE = "assets";
   const MONSTER_LIBRARY = {
     fallback: [
       { id: "sparring_wisp", name: "Sparring Wisp", glyph: "🌀", lore: "A training spirit that tests basic pattern recognition.", tier: 1 },
@@ -72,6 +71,8 @@ const WC_RPG = (() => {
     resultPayload: null,
     studentProfile: null,
     character: null,
+    equipmentBySlot: {},
+    itemById: {},
     unlockQueue: [],
     currentMonster: null
   };
@@ -79,6 +80,7 @@ const WC_RPG = (() => {
   const el = {};
 
   function init() {
+    ensureAvatarCanvasElement();
     cacheDom();
     bindEvents();
     loadLocalProfile();
@@ -123,15 +125,7 @@ const WC_RPG = (() => {
     el.studentLevelDisplay = document.getElementById("student-level-display");
     el.studentXpDisplay = document.getElementById("student-xp-display");
 
-    el.avatarSkin = document.getElementById("avatar-skin");
-    el.avatarLegs = document.getElementById("avatar-legs");
-    el.avatarTorso = document.getElementById("avatar-torso");
-    el.avatarHair = document.getElementById("avatar-hair");
-    el.avatarHat = document.getElementById("avatar-hat");
-    el.avatarFace = document.getElementById("avatar-face");
-    el.avatarAccessory = document.getElementById("avatar-accessory");
-    el.avatarWeapon = document.getElementById("avatar-weapon");
-    el.avatarPet = document.getElementById("avatar-pet");
+    el.avatarCanvas = document.getElementById("avatar-canvas");
 
     el.unlockModal = document.getElementById("unlock-modal");
     el.unlockList = document.getElementById("unlock-list");
@@ -151,6 +145,29 @@ const WC_RPG = (() => {
     el.monsterName = document.getElementById("monster-name");
     el.monsterTier = document.getElementById("monster-tier");
     el.monsterDescription = document.getElementById("monster-description");
+  }
+
+  function ensureAvatarCanvasElement() {
+    const stage = document.querySelector(".avatar-stage");
+    if (!stage) return;
+
+    const legacyImages = stage.querySelectorAll("img");
+    legacyImages.forEach(img => {
+      img.style.display = "none";
+      img.removeAttribute("src");
+      img.setAttribute("aria-hidden", "true");
+      img.remove();
+    });
+
+    const existingCanvas = document.getElementById("avatar-canvas");
+    if (existingCanvas) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.id = "avatar-canvas";
+    canvas.width = 256;
+    canvas.height = 256;
+    canvas.setAttribute("aria-label", "character avatar");
+    stage.appendChild(canvas);
   }
 
   function bindEvents() {
@@ -235,8 +252,37 @@ const WC_RPG = (() => {
     renderAvatar();
     chooseMonsterForRun();
     renderMonster();
+    fetchStudentSnapshot();
 
     loadQuestions(code);
+  }
+
+  async function fetchStudentSnapshot() {
+    if (!state.studentKey) return;
+    try {
+      const url = `${CONFIG.WEB_APP_URL}?action=student&student_key=${encodeURIComponent(state.studentKey)}`;
+      const response = await fetch(url, { method: "GET" });
+      const data = await response.json();
+      if (!data.ok) return;
+
+      if (data.summary) {
+        state.studentProfile.level = Number(data.summary.level || state.studentProfile.level || 1);
+        state.studentProfile.totalXp = Number(data.summary.total_xp || state.studentProfile.totalXp || 0);
+      }
+      if (data.character) {
+        state.character = parseCharacter(data.character);
+      }
+      if (data.equipment) {
+        cacheEquipmentData(data.equipment);
+      }
+
+      populateEquipmentSelectors();
+      renderStudentHeader();
+      renderAvatar();
+      saveLocalProfile();
+    } catch (_error) {
+      // If sync fails, local fallback still works.
+    }
   }
 
   async function loadQuestions(code) {
@@ -609,6 +655,9 @@ const WC_RPG = (() => {
     if (result.character) {
       state.character = parseCharacter(result.character);
     }
+    if (result.equipment) {
+      cacheEquipmentData(result.equipment);
+    }
 
     saveLocalProfile();
   }
@@ -682,20 +731,26 @@ const WC_RPG = (() => {
       : `No ${slot}`;
     selectEl.appendChild(blankOption);
 
-    unlocked.forEach(assetKey => {
+    unlocked.forEach(asset => {
       const option = document.createElement("option");
-      option.value = assetKey;
-      option.textContent = prettifyAssetName(assetKey);
-      if (assetKey === currentValue) option.selected = true;
+      option.value = asset.item_id;
+      option.textContent = asset.item_name || prettifyAssetName(asset.item_id);
+      if (asset.item_id === currentValue) option.selected = true;
       selectEl.appendChild(option);
     });
   }
 
   function getUnlockedAssetsForSlot(slot) {
+    const fromServer = state.equipmentBySlot?.[slot] || [];
+    if (fromServer.length > 0) {
+      return fromServer.filter(item => item.unlocked);
+    }
+
     const unlockedCsv = state.character?.unlocked_csv || "";
     const unlocked = unlockedCsv.split(",").map(x => x.trim()).filter(Boolean);
-
-    return unlocked.filter(assetKey => belongsToSlot(slot, assetKey));
+    return unlocked
+      .filter(assetKey => belongsToSlot(slot, assetKey))
+      .map(assetKey => ({ item_id: assetKey, item_name: prettifyAssetName(assetKey), unlocked: true }));
   }
 
   function belongsToSlot(slot, assetKey) {
@@ -706,13 +761,13 @@ const WC_RPG = (() => {
     if (slot === "face") return key.startsWith("face_");
     if (slot === "torso") return key.startsWith("torso_");
     if (slot === "legs") return key.startsWith("legs_");
-    if (slot === "accessory") return key.startsWith("acc_");
-    if (slot === "weapon") return key.startsWith("wpn_");
+    if (slot === "accessory") return key.startsWith("acc_") || key.startsWith("accessory_");
+    if (slot === "weapon") return key.startsWith("wpn_") || key.startsWith("weapon_");
     if (slot === "pet") return key.startsWith("pet_");
     return false;
   }
 
-  function saveEquippedLoadout() {
+  async function saveEquippedLoadout() {
     ensureProfileExists();
 
     if (el.equipSkin?.value) state.character.skin = el.equipSkin.value;
@@ -725,47 +780,172 @@ const WC_RPG = (() => {
     state.character.weapon = el.equipWeapon?.value || "";
     state.character.pet = el.equipPet?.value || "";
 
-    saveLocalProfile();
-    renderAvatar();
+    try {
+      const payload = {
+        action: "save_character",
+        student_key: state.studentKey,
+        skin: state.character.skin,
+        hair: state.character.hair,
+        hat: state.character.hat,
+        face: state.character.face,
+        torso: state.character.torso,
+        legs: state.character.legs,
+        accessory: state.character.accessory,
+        weapon: state.character.weapon,
+        pet: state.character.pet
+      };
+
+      const response = await fetch(CONFIG.WEB_APP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+
+      if (!data.ok) {
+        throw new Error(data.error || "Could not save equipment.");
+      }
+
+      if (data.character) state.character = parseCharacter(data.character);
+      if (data.equipment) cacheEquipmentData(data.equipment);
+      saveLocalProfile();
+      renderAvatar();
+      clearError();
+    } catch (error) {
+      setError(error.message || "Could not save equipment.");
+    }
   }
 
   function renderAvatar() {
     ensureProfileExists();
-
-    setLayerImage(el.avatarSkin, getAssetPath("skin", state.character.skin));
-    setLayerImage(el.avatarLegs, getAssetPath("legs", state.character.legs));
-    setLayerImage(el.avatarTorso, getAssetPath("torso", state.character.torso));
-    setLayerImage(el.avatarHair, getAssetPath("hair", state.character.hair));
-    setLayerImage(el.avatarHat, getAssetPath("hat", state.character.hat));
-    setLayerImage(el.avatarFace, getAssetPath("face", state.character.face));
-    setLayerImage(el.avatarAccessory, getAssetPath("accessory", state.character.accessory));
-    setLayerImage(el.avatarWeapon, getAssetPath("weapon", state.character.weapon));
-    setLayerImage(el.avatarPet, getAssetPath("pet", state.character.pet));
+    drawAvatarCanvas();
   }
 
-  function getAssetPath(slot, assetKey) {
-    if (!slot || !assetKey) return "";
-    const fileName = normalizeAssetKey(assetKey) + ".png";
-
-    if (slot === "accessory") return `${ASSET_BASE}/accessory/${fileName}`;
-    if (slot === "weapon") return `${ASSET_BASE}/weapon/${fileName}`;
-    return `${ASSET_BASE}/${slot}/${fileName}`;
+  function getSlotColor(slot) {
+    const fallback = {
+      skin: "#8c5e4a",
+      hair: "#2b1b12",
+      hat: "#7a6a32",
+      face: "#4a4a4a",
+      torso: "#3d5f8a",
+      legs: "#42372b",
+      accessory: "#5e4e78",
+      weapon: "#5f4343",
+      pet: "#405b44"
+    };
+    return fallback[slot] || "#555555";
   }
 
-  function normalizeAssetKey(key) {
-    return String(key || "").trim().toLowerCase();
+  function drawAvatarCanvas() {
+    const canvas = el.avatarCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const slotFrames = {
+      pet: { x: 24, y: 160, w: 64, h: 64 },
+      skin: { x: 84, y: 24, w: 88, h: 180 },
+      legs: { x: 84, y: 128, w: 88, h: 76 },
+      torso: { x: 84, y: 76, w: 88, h: 76 },
+      hair: { x: 84, y: 24, w: 88, h: 58 },
+      hat: { x: 84, y: 8, w: 88, h: 36 },
+      face: { x: 98, y: 48, w: 60, h: 34 },
+      accessory: { x: 172, y: 88, w: 44, h: 44 },
+      weapon: { x: 178, y: 128, w: 42, h: 76 }
+    };
+    const slotOrder = ["pet", "skin", "legs", "torso", "hair", "hat", "face", "accessory", "weapon"];
+
+    slotOrder.forEach(slot => {
+      const itemId = state.character?.[slot];
+      if (!itemId) return;
+      const item = state.itemById[itemId];
+      const frame = slotFrames[slot];
+      drawItemSprite(ctx, item, frame, slot);
+    });
   }
 
-  function setLayerImage(imgEl, src) {
-    if (!imgEl) return;
+  function drawItemSprite(ctx, item, frame, slot) {
+    if (!frame) return;
+    const pixels = parseSpriteRows(item?.sprite_map);
+    const paletteMap = parsePaletteMap(item?.palette || "");
+    const primaryColor = firstPaletteColor(paletteMap) || getSlotColor(slot);
 
-    if (src) {
-      imgEl.src = src;
-      imgEl.style.display = "block";
-    } else {
-      imgEl.removeAttribute("src");
-      imgEl.style.display = "none";
+    if (!pixels.length) {
+      ctx.fillStyle = primaryColor;
+      ctx.fillRect(frame.x, frame.y, frame.w, frame.h);
+      return;
     }
+
+    const rows = pixels.length;
+    const cols = Math.max(...pixels.map(row => row.length));
+    if (!cols) return;
+
+    const pxSize = Math.max(1, Math.floor(Math.min(frame.w / cols, frame.h / rows)));
+    const drawW = cols * pxSize;
+    const drawH = rows * pxSize;
+    const startX = frame.x + Math.floor((frame.w - drawW) / 2);
+    const startY = frame.y + Math.floor((frame.h - drawH) / 2);
+
+    for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
+      const row = pixels[rowIndex];
+      for (let colIndex = 0; colIndex < row.length; colIndex++) {
+        const char = row[colIndex];
+        if (char !== "x" && char !== "X" && char !== "#") continue;
+        ctx.fillStyle = primaryColor;
+        ctx.fillRect(startX + colIndex * pxSize, startY + rowIndex * pxSize, pxSize, pxSize);
+      }
+    }
+  }
+
+  function parseSpriteRows(spriteMap) {
+    if (!spriteMap) return [];
+    return String(spriteMap)
+      .split("|")
+      .map(row => row.trim())
+      .filter(Boolean);
+  }
+
+  function parsePaletteMap(paletteText) {
+    const palette = {};
+    String(paletteText || "")
+      .split(";")
+      .map(entry => entry.trim())
+      .filter(Boolean)
+      .forEach(entry => {
+        const [key, value] = entry.split(":");
+        if (!value) return;
+        const colorKey = String(key || "").trim().toLowerCase();
+        const colorValue = String(value || "").trim();
+        if (colorKey && colorValue) palette[colorKey] = colorValue;
+      });
+    return palette;
+  }
+
+  function firstPaletteColor(paletteMap) {
+    const orderedKeys = ["main", "base", "hair", "eyes", "gold", "mark", "blade", "fur"];
+    for (let i = 0; i < orderedKeys.length; i++) {
+      const color = paletteMap[orderedKeys[i]];
+      if (color) return color;
+    }
+    const fallback = Object.values(paletteMap).find(Boolean);
+    return fallback || "";
+  }
+
+  function cacheEquipmentData(equipment) {
+    const slots = equipment?.slots || {};
+    state.equipmentBySlot = slots;
+    state.itemById = {};
+    Object.keys(slots).forEach(slot => {
+      (slots[slot] || []).forEach(item => {
+        if (item?.item_id) {
+          state.itemById[item.item_id] = item;
+        }
+      });
+    });
   }
 function getLevelFromXP(xp) {
   return Math.floor(xp / 100) + 1;

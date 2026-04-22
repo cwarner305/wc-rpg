@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WC RPG</title>
-<link rel="stylesheet" href="./style.css?v=3" /></head>
+<link rel="stylesheet" href="./style.css?v=5" /></head>
 <body>
   <div class="app-shell">
     <header class="top-bar">
@@ -26,15 +26,7 @@
           <h2>Your Character</h2>
 
           <div class="avatar-stage">
-            <img id="avatar-skin" alt="skin layer" />
-            <img id="avatar-legs" alt="legs layer" />
-            <img id="avatar-torso" alt="torso layer" />
-            <img id="avatar-hair" alt="hair layer" />
-            <img id="avatar-hat" alt="hat layer" />
-            <img id="avatar-face" alt="face layer" />
-            <img id="avatar-accessory" alt="accessory layer" />
-            <img id="avatar-weapon" alt="weapon layer" />
-            <img id="avatar-pet" alt="pet layer" />
+            <canvas id="avatar-canvas" width="256" height="256" aria-label="character avatar"></canvas>
           </div>
         </section>
 
@@ -190,6 +182,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
