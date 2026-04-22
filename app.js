@@ -1,4 +1,3 @@
-// ===== START COPY HERE: app.js =====
 const WC_RPG = (() => {
   const CONFIG = {
     WEB_APP_URL: "https://script.google.com/macros/s/AKfycbz7ZEV6TtBKoiT2KQaZf9nNqiBiTC7SGolaPtZL8eIzFg03t1PbvJei0qIhYY-2iQ3cJQ/exec",
@@ -7,6 +6,9 @@ const WC_RPG = (() => {
     DEFAULT_MAX_BOSS_QUESTIONS: 10,
     STORAGE_KEY_PREFIX: "wc_rpg_",
     XP_PER_LEVEL: 100,
+    AVATAR_SCALE_MIN: 0.72,
+    AVATAR_SCALE_MAX: 1.08,
+    AVATAR_SCALE_LEVELS_TO_MAX: 30,
     DEFAULT_CHARACTER: {
       skin: "skin_01",
       hair: "hair_01",
@@ -73,6 +75,7 @@ const WC_RPG = (() => {
     studentProfile: null,
     character: null,
     equipment: null,
+    catalogItems: [],
     unlockQueue: [],
     currentMonster: null
   };
@@ -126,6 +129,7 @@ const WC_RPG = (() => {
     el.studentXpDisplay = document.getElementById("student-xp-display");
 
     el.avatarSkin = document.getElementById("avatar-skin");
+    el.avatarStage = document.querySelector(".avatar-stage");
     el.avatarLegs = document.getElementById("avatar-legs");
     el.avatarTorso = document.getElementById("avatar-torso");
     el.avatarHair = document.getElementById("avatar-hair");
@@ -162,6 +166,23 @@ const WC_RPG = (() => {
     if (el.playAgainBtn) el.playAgainBtn.addEventListener("click", resetToStart);
     if (el.closeUnlockBtn) el.closeUnlockBtn.addEventListener("click", closeUnlockModal);
     if (el.saveEquipBtn) el.saveEquipBtn.addEventListener("click", saveEquippedLoadout);
+    if (el.studentKeyInput) {
+      el.studentKeyInput.addEventListener("change", handleStudentKeyChanged);
+      el.studentKeyInput.addEventListener("blur", handleStudentKeyChanged);
+    }
+  }
+
+  async function handleStudentKeyChanged() {
+    const typedStudentKey = (el.studentKeyInput?.value || "").trim().toLowerCase();
+    if (!typedStudentKey) return;
+
+    state.studentKey = typedStudentKey;
+    loadLocalProfileForStudent(typedStudentKey);
+    ensureProfileExists();
+    await hydrateStudentFromServer(typedStudentKey);
+    renderStudentHeader();
+    renderAvatar();
+    populateEquipmentSelectors();
   }
 
   function showScreen(name) {
@@ -270,8 +291,26 @@ const WC_RPG = (() => {
       if (data.equipment) {
         state.equipment = data.equipment;
       }
+
+      await ensureCatalogLoaded();
     } catch (error) {
       console.warn("Unable to hydrate student from backend.", error);
+    }
+  }
+
+  async function ensureCatalogLoaded() {
+    if (Array.isArray(state.catalogItems) && state.catalogItems.length > 0) return;
+
+    try {
+      const url = `${CONFIG.WEB_APP_URL}?action=catalog`;
+      const response = await fetch(url, { method: "GET" });
+      const data = await response.json();
+
+      if (data.ok && Array.isArray(data.items)) {
+        state.catalogItems = data.items;
+      }
+    } catch (error) {
+      console.warn("Unable to load equipment catalog.", error);
     }
   }
 
@@ -722,40 +761,83 @@ const WC_RPG = (() => {
       : `No ${slot}`;
     selectEl.appendChild(blankOption);
 
-    unlocked.forEach(assetKey => {
+    unlocked.forEach(item => {
       const option = document.createElement("option");
-      option.value = assetKey;
-      option.textContent = prettifyAssetName(assetKey);
-      if (assetKey === currentValue) option.selected = true;
+      option.value = item.item_id;
+      option.textContent = item.item_name || prettifyAssetName(item.item_id);
+      if (item.item_id === currentValue) option.selected = true;
       selectEl.appendChild(option);
     });
   }
 
   function getUnlockedAssetsForSlot(slot) {
-    const slotItems = state.equipment?.slots?.[slot];
+    const slotItems = normalizeSlotItems(slot);
     if (Array.isArray(slotItems) && slotItems.length > 0) {
-      const unlockedIds = slotItems
-        .filter(item => !!item.unlocked)
-        .map(item => item.item_id)
-        .filter(Boolean);
+      const unlockedItems = slotItems.filter(item => !!item.unlocked && !!item.item_id);
 
-      if (unlockedIds.length > 0) return unlockedIds;
+      if (unlockedItems.length > 0) return unlockedItems;
 
       // Defensive fallback for misconfigured/unseeded unlock flags:
       // keep currently equipped item selectable and include starter-level items.
       const currentId = state.character?.[slot] || state.equipment?.current?.[slot] || "";
-      const starterIds = slotItems
+      const starterItems = slotItems
         .filter(item => Number(item.level_required || 0) <= 1)
-        .map(item => item.item_id)
-        .filter(Boolean);
+        .filter(item => !!item.item_id);
+      const currentItem = slotItems.find(item => item.item_id === currentId);
 
-      return Array.from(new Set([currentId, ...starterIds].filter(Boolean)));
+      return dedupeItems([currentItem, ...starterItems].filter(Boolean));
     }
 
     const unlockedCsv = state.character?.unlocked_csv || "";
     const unlocked = unlockedCsv.split(",").map(x => x.trim()).filter(Boolean);
 
-    return unlocked.filter(assetKey => belongsToSlot(slot, assetKey));
+    return unlocked
+      .filter(assetKey => belongsToSlot(slot, assetKey))
+      .map(assetKey => ({
+        item_id: assetKey,
+        item_name: prettifyAssetName(assetKey),
+        unlocked: true
+      }));
+  }
+
+  function normalizeSlotItems(slot) {
+    const serverSlotItems = state.equipment?.slots?.[slot];
+    if (Array.isArray(serverSlotItems) && serverSlotItems.length > 0) {
+      return serverSlotItems;
+    }
+
+    if (!Array.isArray(state.catalogItems) || state.catalogItems.length === 0) {
+      return [];
+    }
+
+    return state.catalogItems
+      .filter(item => String(item.slot || "").toLowerCase() === slot)
+      .map(item => {
+        const itemId = String(item.item_id || "").trim();
+        const unlockedCsv = state.character?.unlocked_csv || "";
+        const unlockedSet = new Set(
+          unlockedCsv
+            .split(",")
+            .map(x => x.trim())
+            .filter(Boolean)
+        );
+        const isStarter = Number(item.level_required || 0) <= 1;
+        return {
+          ...item,
+          item_id: itemId,
+          unlocked: unlockedSet.has(itemId) || isStarter
+        };
+      });
+  }
+
+  function dedupeItems(items) {
+    const seen = new Set();
+    return items.filter(item => {
+      const itemId = String(item?.item_id || "");
+      if (!itemId || seen.has(itemId)) return false;
+      seen.add(itemId);
+      return true;
+    });
   }
 
   function belongsToSlot(slot, assetKey) {
@@ -824,6 +906,7 @@ const WC_RPG = (() => {
 
   function renderAvatar() {
     ensureProfileExists();
+    applyAvatarScale();
 
     setLayerImage(el.avatarSkin, getAssetPath("skin", state.character.skin));
     setLayerImage(el.avatarLegs, getAssetPath("legs", state.character.legs));
@@ -834,6 +917,23 @@ const WC_RPG = (() => {
     setLayerImage(el.avatarAccessory, getAssetPath("accessory", state.character.accessory));
     setLayerImage(el.avatarWeapon, getAssetPath("weapon", state.character.weapon));
     setLayerImage(el.avatarPet, getAssetPath("pet", state.character.pet));
+  }
+
+  function applyAvatarScale() {
+    if (!el.avatarStage) return;
+    const totalXp = Number(state.studentProfile?.totalXp || 0);
+    const scale = getAvatarScaleFromXp(totalXp);
+    el.avatarStage.style.setProperty("--avatar-scale", String(scale));
+  }
+
+  function getAvatarScaleFromXp(totalXp) {
+    const level = Math.max(1, Math.floor(Number(totalXp || 0) / CONFIG.XP_PER_LEVEL) + 1);
+    const maxLevel = Math.max(2, Number(CONFIG.AVATAR_SCALE_LEVELS_TO_MAX || 30));
+    const progress = Math.max(0, Math.min(1, (level - 1) / (maxLevel - 1)));
+    const minScale = Number(CONFIG.AVATAR_SCALE_MIN || 0.72);
+    const maxScale = Number(CONFIG.AVATAR_SCALE_MAX || 1.08);
+    const scaled = minScale + ((maxScale - minScale) * progress);
+    return Number(scaled.toFixed(3));
   }
 
   function getAssetPath(slot, assetKey) {
@@ -1011,4 +1111,3 @@ function awardXP(baseXP, accuracy) {
 document.addEventListener("DOMContentLoaded", () => {
   WC_RPG.init();
 });
-// ===== END COPY HERE: app.js =====
