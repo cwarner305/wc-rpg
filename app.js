@@ -24,6 +24,17 @@ const WC_RPG = (() => {
   };
 
   const ASSET_BASE = "assets";
+  const AVAILABLE_ASSETS = {
+    skin: ["skin_01"],
+    hair: ["hair_01", "hair_02", "hair_03"],
+    hat: ["hat_01", "hat_02"],
+    face: ["face_01"],
+    torso: ["torso_01", "torso_02", "torso_03"],
+    legs: ["legs_01", "legs_02", "legs_03"],
+    accessory: ["acc_01", "acc_02"],
+    weapon: ["wpn_01", "wpn_02"],
+    pet: ["pet_01", "pet_02"]
+  };
   const MONSTER_LIBRARY = {
     fallback: [
       { id: "sparring_wisp", name: "Sparring Wisp", glyph: "🌀", lore: "A training spirit that tests basic pattern recognition.", tier: 1 },
@@ -77,7 +88,9 @@ const WC_RPG = (() => {
     equipment: null,
     catalogItems: [],
     unlockQueue: [],
-    currentMonster: null
+    currentMonster: null,
+    quizLoadRequestId: 0,
+    isLoadingQuestions: false
   };
 
   const el = {};
@@ -214,6 +227,8 @@ const WC_RPG = (() => {
   }
 
   async function startGame() {
+    if (state.isLoadingQuestions) return;
+
     clearError();
 
     const studentKey = (el.studentKeyInput?.value || "").trim().toLowerCase();
@@ -250,6 +265,7 @@ const WC_RPG = (() => {
     state.endTime = null;
     state.resultPayload = null;
     state.currentMonster = null;
+    state.quizLoadRequestId += 1;
 
     loadLocalProfileForStudent(studentKey);
     ensureProfileExists();
@@ -261,7 +277,7 @@ const WC_RPG = (() => {
     chooseMonsterForRun();
     renderMonster();
 
-    loadQuestions(code);
+    loadQuestions(code, state.quizLoadRequestId);
   }
 
   async function hydrateStudentFromServer(studentKey) {
@@ -314,14 +330,18 @@ const WC_RPG = (() => {
     }
   }
 
-  async function loadQuestions(code) {
+  async function loadQuestions(code, requestId) {
     try {
+      state.isLoadingQuestions = true;
+      if (el.startBtn) el.startBtn.disabled = true;
       setLoading("Loading questions...");
       clearError();
 
       const url = `${CONFIG.WEB_APP_URL}?action=questions&code=${encodeURIComponent(code)}`;
       const response = await fetch(url, { method: "GET" });
       const data = await response.json();
+
+      if (requestId !== state.quizLoadRequestId) return;
 
       if (!data.ok) {
         throw new Error(data.error || "Unable to load questions.");
@@ -345,8 +365,14 @@ const WC_RPG = (() => {
       renderMonster();
       renderQuestion();
     } catch (error) {
+      if (requestId !== state.quizLoadRequestId) return;
       setLoading("");
       setError(error.message || "There was a problem loading the quiz.");
+    } finally {
+      if (requestId === state.quizLoadRequestId) {
+        state.isLoadingQuestions = false;
+        if (el.startBtn) el.startBtn.disabled = false;
+      }
     }
   }
 
@@ -694,16 +720,16 @@ const WC_RPG = (() => {
 
   function parseCharacter(rawCharacter) {
     const character = {
-      skin: rawCharacter?.skin || CONFIG.DEFAULT_CHARACTER.skin,
-      hair: rawCharacter?.hair || CONFIG.DEFAULT_CHARACTER.hair,
-      hat: rawCharacter?.hat || "",
-      face: rawCharacter?.face || "",
-      torso: rawCharacter?.torso || CONFIG.DEFAULT_CHARACTER.torso,
-      legs: rawCharacter?.legs || CONFIG.DEFAULT_CHARACTER.legs,
-      accessory: rawCharacter?.accessory || "",
-      weapon: rawCharacter?.weapon || "",
-      pet: rawCharacter?.pet || "",
-      unlocked_csv: rawCharacter?.unlocked_csv || CONFIG.DEFAULT_CHARACTER.unlocked_csv
+      skin: sanitizeEquippedItem("skin", rawCharacter?.skin) || CONFIG.DEFAULT_CHARACTER.skin,
+      hair: sanitizeEquippedItem("hair", rawCharacter?.hair) || CONFIG.DEFAULT_CHARACTER.hair,
+      hat: sanitizeEquippedItem("hat", rawCharacter?.hat || ""),
+      face: sanitizeEquippedItem("face", rawCharacter?.face || ""),
+      torso: sanitizeEquippedItem("torso", rawCharacter?.torso) || CONFIG.DEFAULT_CHARACTER.torso,
+      legs: sanitizeEquippedItem("legs", rawCharacter?.legs) || CONFIG.DEFAULT_CHARACTER.legs,
+      accessory: sanitizeEquippedItem("accessory", rawCharacter?.accessory || ""),
+      weapon: sanitizeEquippedItem("weapon", rawCharacter?.weapon || ""),
+      pet: sanitizeEquippedItem("pet", rawCharacter?.pet || ""),
+      unlocked_csv: sanitizeUnlockedCsv(rawCharacter?.unlocked_csv || CONFIG.DEFAULT_CHARACTER.unlocked_csv)
     };
 
     return character;
@@ -803,7 +829,12 @@ const WC_RPG = (() => {
   function normalizeSlotItems(slot) {
     const serverSlotItems = state.equipment?.slots?.[slot];
     if (Array.isArray(serverSlotItems) && serverSlotItems.length > 0) {
-      return serverSlotItems;
+      return serverSlotItems
+        .map(item => ({
+          ...item,
+          item_id: sanitizeEquippedItem(slot, item.item_id || "")
+        }))
+        .filter(item => !!item.item_id);
     }
 
     if (!Array.isArray(state.catalogItems) || state.catalogItems.length === 0) {
@@ -813,7 +844,8 @@ const WC_RPG = (() => {
     return state.catalogItems
       .filter(item => String(item.slot || "").toLowerCase() === slot)
       .map(item => {
-        const itemId = String(item.item_id || "").trim();
+        const itemId = sanitizeEquippedItem(slot, item.item_id || "");
+        if (!itemId) return null;
         const unlockedCsv = state.character?.unlocked_csv || "";
         const unlockedSet = new Set(
           unlockedCsv
@@ -827,7 +859,8 @@ const WC_RPG = (() => {
           item_id: itemId,
           unlocked: unlockedSet.has(itemId) || isStarter
         };
-      });
+      })
+      .filter(Boolean);
   }
 
   function dedupeItems(items) {
@@ -852,6 +885,29 @@ const WC_RPG = (() => {
     if (slot === "weapon") return key.startsWith("wpn_") || key.startsWith("weapon_");
     if (slot === "pet") return key.startsWith("pet_");
     return false;
+  }
+
+  function sanitizeUnlockedCsv(csvValue) {
+    const values = String(csvValue || "")
+      .split(",")
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean);
+
+    const cleaned = values.filter(itemId => isKnownAssetKey(itemId));
+    return dedupeItems(cleaned.map(item_id => ({ item_id }))).map(item => item.item_id).join(",");
+  }
+
+  function sanitizeEquippedItem(slot, itemId) {
+    const normalized = normalizeAssetKey(itemId);
+    if (!normalized) return "";
+    if (!belongsToSlot(slot, normalized)) return "";
+    if (!isKnownAssetKey(normalized)) return "";
+    return normalized;
+  }
+
+  function isKnownAssetKey(itemId) {
+    const normalized = normalizeAssetKey(itemId);
+    return Object.values(AVAILABLE_ASSETS).some(items => items.includes(normalized));
   }
 
   async function saveEquippedLoadout() {
