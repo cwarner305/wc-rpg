@@ -86,6 +86,7 @@ const WC_RPG = (() => {
     ensureProfileExists();
     renderStudentHeader();
     renderAvatar();
+    populateEquipmentSelectors();
     showScreen("start");
   }
 
@@ -733,10 +734,22 @@ const WC_RPG = (() => {
   function getUnlockedAssetsForSlot(slot) {
     const slotItems = state.equipment?.slots?.[slot];
     if (Array.isArray(slotItems) && slotItems.length > 0) {
-      return slotItems
+      const unlockedIds = slotItems
         .filter(item => !!item.unlocked)
         .map(item => item.item_id)
         .filter(Boolean);
+
+      if (unlockedIds.length > 0) return unlockedIds;
+
+      // Defensive fallback for misconfigured/unseeded unlock flags:
+      // keep currently equipped item selectable and include starter-level items.
+      const currentId = state.character?.[slot] || state.equipment?.current?.[slot] || "";
+      const starterIds = slotItems
+        .filter(item => Number(item.level_required || 0) <= 1)
+        .map(item => item.item_id)
+        .filter(Boolean);
+
+      return Array.from(new Set([currentId, ...starterIds].filter(Boolean)));
     }
 
     const unlockedCsv = state.character?.unlocked_csv || "";
