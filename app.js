@@ -122,6 +122,9 @@ const WC_RPG = (() => {
 
     el.loadingText = document.getElementById("loading-text");
     el.errorBox = document.getElementById("error-box");
+    el.adminClearStudentsBtn = document.getElementById("admin-clear-students-btn");
+    el.adminConsolidateSheetsBtn = document.getElementById("admin-consolidate-sheets-btn");
+    el.adminStatus = document.getElementById("admin-status");
 
     el.quizCodeLabel = document.getElementById("quiz-code-label");
     el.quizProgressLabel = document.getElementById("quiz-progress-label");
@@ -179,6 +182,8 @@ const WC_RPG = (() => {
     if (el.playAgainBtn) el.playAgainBtn.addEventListener("click", resetToStart);
     if (el.closeUnlockBtn) el.closeUnlockBtn.addEventListener("click", closeUnlockModal);
     if (el.saveEquipBtn) el.saveEquipBtn.addEventListener("click", saveEquippedLoadout);
+    if (el.adminClearStudentsBtn) el.adminClearStudentsBtn.addEventListener("click", clearAllStudents);
+    if (el.adminConsolidateSheetsBtn) el.adminConsolidateSheetsBtn.addEventListener("click", consolidateLegacySheets);
     if (el.studentKeyInput) {
       el.studentKeyInput.addEventListener("change", handleStudentKeyChanged);
       el.studentKeyInput.addEventListener("blur", handleStudentKeyChanged);
@@ -224,6 +229,51 @@ const WC_RPG = (() => {
 
   function clearError() {
     setError("");
+  }
+
+  async function parseJsonResponse(response, contextLabel) {
+    const rawText = await response.text();
+    const trimmed = rawText.trim();
+
+    if (!trimmed) {
+      throw new Error(`${contextLabel} returned an empty response.`);
+    }
+
+    try {
+      return JSON.parse(trimmed);
+    } catch (error) {
+      if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
+        throw new Error(
+          `${contextLabel} returned HTML instead of JSON. Re-deploy Apps Script Web App access and URL settings.`
+        );
+      }
+      throw new Error(`${contextLabel} returned invalid JSON.`);
+    }
+  }
+
+  async function apiGet(action, params = {}) {
+    const url = new URL(CONFIG.WEB_APP_URL);
+    url.searchParams.set("action", action);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    });
+
+    const response = await fetch(url.toString(), { method: "GET" });
+    return parseJsonResponse(response, `Action "${action}"`);
+  }
+
+  async function apiPost(payload) {
+    const actionName = payload?.action || "unknown";
+    const response = await fetch(CONFIG.WEB_APP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify(payload)
+    });
+    return parseJsonResponse(response, `Action "${actionName}"`);
   }
 
   async function startGame() {
@@ -282,9 +332,7 @@ const WC_RPG = (() => {
 
   async function hydrateStudentFromServer(studentKey) {
     try {
-      const url = `${CONFIG.WEB_APP_URL}?action=student&student_key=${encodeURIComponent(studentKey)}`;
-      const response = await fetch(url, { method: "GET" });
-      const data = await response.json();
+      const data = await apiGet("student", { student_key: studentKey });
 
       if (!data.ok) return;
 
@@ -318,9 +366,7 @@ const WC_RPG = (() => {
     if (Array.isArray(state.catalogItems) && state.catalogItems.length > 0) return;
 
     try {
-      const url = `${CONFIG.WEB_APP_URL}?action=catalog`;
-      const response = await fetch(url, { method: "GET" });
-      const data = await response.json();
+      const data = await apiGet("catalog");
 
       if (data.ok && Array.isArray(data.items)) {
         state.catalogItems = data.items;
@@ -337,9 +383,7 @@ const WC_RPG = (() => {
       setLoading("Loading questions...");
       clearError();
 
-      const url = `${CONFIG.WEB_APP_URL}?action=questions&code=${encodeURIComponent(code)}`;
-      const response = await fetch(url, { method: "GET" });
-      const data = await response.json();
+      const data = await apiGet("questions", { code });
 
       if (requestId !== state.quizLoadRequestId) return;
 
@@ -491,15 +535,7 @@ const WC_RPG = (() => {
         time_spent_seconds: getTimeSpentSeconds()
       };
 
-      const response = await fetch(CONFIG.WEB_APP_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8"
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
+      const data = await apiPost(payload);
 
       if (!data.ok) {
         throw new Error(data.error || "Your score could not be saved.");
@@ -938,14 +974,7 @@ const WC_RPG = (() => {
     };
 
     try {
-      const response = await fetch(CONFIG.WEB_APP_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8"
-        },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json();
+      const data = await apiPost(payload);
 
       if (!data.ok) {
         throw new Error(data.error || "Could not save equipment.");
@@ -957,6 +986,36 @@ const WC_RPG = (() => {
       renderAvatar();
     } catch (error) {
       setError(error.message || "Could not save equipment.");
+    }
+  }
+
+  async function clearAllStudents() {
+    const ok = window.confirm("Clear all student progress from the connected Google Sheet?");
+    if (!ok) return;
+    await runAdminAction("admin_clear_students", "Student progress cleared.");
+  }
+
+  async function consolidateLegacySheets() {
+    const ok = window.confirm("Consolidate or archive legacy sheets not used in gameplay?");
+    if (!ok) return;
+    await runAdminAction("admin_consolidate_legacy_sheets", "Legacy sheet cleanup completed.");
+  }
+
+  async function runAdminAction(action, successMessage) {
+    const statusEl = el.adminStatus;
+    try {
+      if (statusEl) statusEl.textContent = "Running...";
+      if (el.adminClearStudentsBtn) el.adminClearStudentsBtn.disabled = true;
+      if (el.adminConsolidateSheetsBtn) el.adminConsolidateSheetsBtn.disabled = true;
+
+      const data = await apiPost({ action });
+      if (!data.ok) throw new Error(data.error || "Admin action failed.");
+      if (statusEl) statusEl.textContent = data.message || successMessage;
+    } catch (error) {
+      if (statusEl) statusEl.textContent = `Error: ${error.message || "Admin action failed."}`;
+    } finally {
+      if (el.adminClearStudentsBtn) el.adminClearStudentsBtn.disabled = false;
+      if (el.adminConsolidateSheetsBtn) el.adminConsolidateSheetsBtn.disabled = false;
     }
   }
 
