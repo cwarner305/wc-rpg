@@ -198,6 +198,32 @@ button:disabled {
   margin-bottom: 14px;
 }
 
+.admin-tools {
+  background: #161616;
+  border: 1px solid #2d2d2d;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.admin-tools summary {
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.admin-status {
+  margin-top: 10px;
+  color: #9ed0ff;
+  min-height: 18px;
+}
+
 .quiz-meta {
   display: flex;
   justify-content: space-between;
